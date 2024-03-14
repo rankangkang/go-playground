@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 )
@@ -21,25 +22,26 @@ import (
 // 填充，加密时使用
 func pkcs7padding(content []byte, blockSize int) []byte {
 	padding := blockSize - len(content)%blockSize
+	fmt.Println("padding", padding)
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(content, padtext...)
 }
 
-// 去填充，解密时使用
+// // 去填充，解密时使用
+// func pkcs7unpadding(content []byte) ([]byte, error) {
+// 	//获取数据长度
+// 	length := len(content)
+// 	if length == 0 {
+// 		return nil, errors.New("pkcs7unpadding error")
+// 	}
+
+// 	//获取填充字符串长度
+// 	unpadding := int(content[length-1])
+// 	//截取切片，删除填充字节，并且返回明文
+// 	return content[:(length - unpadding)], nil
+// }
+
 func pkcs7unpadding(content []byte) ([]byte, error) {
-	//获取数据长度
-	length := len(content)
-	if length == 0 {
-		return nil, errors.New("pkcs7unpadding error")
-	}
-
-	//获取填充字符串长度
-	unpadding := int(content[length-1])
-	//截取切片，删除填充字节，并且返回明文
-	return content[:(length - unpadding)], nil
-}
-
-func pkcs7unpadding2(content []byte) ([]byte, error) {
 	//获取数据长度
 	length := len(content)
 	if length == 0 {
@@ -49,13 +51,13 @@ func pkcs7unpadding2(content []byte) ([]byte, error) {
 	//获取填充字节
 	padding := int(content[length-1])
 	if padding == 0 || padding > length {
-		return nil, errors.New("pkcs7unpadding error: invalid padding")
+		return content, errors.New("pkcs7unpadding error: invalid padding")
 	}
 
-	//检查填充字节是否合法
+	//检查填充字节是否合法，不合法则说明无需 padding
 	for i := length - padding; i < length-1; i++ {
 		if content[i] != byte(padding) {
-			return nil, errors.New("pkcs7unpadding error: invalid padding bytes")
+			return content, errors.New("pkcs7unpadding error: invalid padding bytes")
 		}
 	}
 
@@ -72,7 +74,7 @@ func NewCbc(key string, iv string) *cbc {
 	return &cbc{key, iv}
 }
 
-// FIXME: 加解密后文件末尾出现 \0x00 等字符
+// 加密文件
 func (c *cbc) EncryptFile(src, dst string) error {
 	key := c.key
 	iv := c.iv
@@ -95,10 +97,10 @@ func (c *cbc) EncryptFile(src, dst string) error {
 	}
 	defer out.Close()
 
-	blockSize := block.BlockSize()
+	blockSize := 100 * block.BlockSize()
 	for {
 		buf := make([]byte, blockSize)
-		n, err := io.ReadFull(in, buf)
+		n, err := in.Read(buf)
 		if err == io.EOF {
 			break
 		} else if err != nil {
@@ -111,12 +113,13 @@ func (c *cbc) EncryptFile(src, dst string) error {
 
 		// padding
 		if n < blockSize {
-			buf = pkcs7padding(buf, blockSize)
+			fmt.Println("e ===>", n)
+			buf = pkcs7padding(buf[:n], block.BlockSize())
+			fmt.Println("ef ===>", len(buf))
 		}
 
-		bufRes := []byte{}
-		mode.CryptBlocks(bufRes, buf)
-		_, err = out.Write(bufRes)
+		mode.CryptBlocks(buf, buf)
+		_, err = out.Write(buf[:])
 		if err != nil {
 			return err
 		}
@@ -138,89 +141,22 @@ func (c *cbc) EncryptFileFull(src, dst string) error {
 	return os.WriteFile(dst, out, os.ModePerm)
 }
 
-// func (c *cbc) DecryptFile(src, dst string) error {
-// 	key := c.key
-// 	iv := c.iv
-
-// 	caeFile, err := os.Open(src)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer caeFile.Close()
-
-// 	block, err := aes.NewCipher([]byte(key))
-// 	if err != nil {
-// 		return err
-// 	}
-// 	mode := cipher.NewCBCDecrypter(block, []byte(iv))
-
-// 	out, err := os.Create(dst)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer out.Close()
-// 	var fileSize int64 = 0
-
-// 	blockSize := block.BlockSize()
-// 	for {
-// 		buf := make([]byte, blockSize)
-// 		n, err := io.ReadFull(caeFile, buf)
-// 		if err == io.EOF {
-// 			break
-// 		} else if err != nil && err != io.ErrUnexpectedEOF {
-// 			return err
-// 		}
-
-// 		if n == 0 {
-// 			break
-// 		}
-
-// 		mode.CryptBlocks(buf, buf)
-// 		_, err = out.Write(buf)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		fileSize += int64(n)
-// 	}
-
-// 	lastBuf := make([]byte, blockSize)
-// 	offset := fileSize - int64(blockSize)
-// 	_, err = out.Seek(offset, 0)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	_, err = out.Read(lastBuf)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	lastBuf, err = pkcs7unpadding(lastBuf)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	err = out.Truncate(offset)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	_, err = out.Write(lastBuf)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
-
-// FIXME: 加解密后文件末尾出现 \0x00 等字符
+// 解密文件，先解密后 padding
 func (c *cbc) DecryptFile(src, dst string) error {
 	key := c.key
 	iv := c.iv
 
-	caeFile, err := os.Open(src)
+	input, err := os.Open(src)
 	if err != nil {
 		return err
 	}
-	defer caeFile.Close()
+	defer input.Close()
+
+	inputStat, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	inputFileSize := inputStat.Size()
 
 	block, err := aes.NewCipher([]byte(key))
 	if err != nil {
@@ -235,14 +171,14 @@ func (c *cbc) DecryptFile(src, dst string) error {
 	defer out.Close()
 	var fileSize int64 = 0
 
-	blockSize := block.BlockSize()
+	blockSize := 100 * block.BlockSize()
 	var lastBlock []byte
 	for {
 		buf := make([]byte, blockSize)
-		n, err := io.ReadFull(caeFile, buf)
+		n, err := input.Read(buf)
 		if err == io.EOF {
 			break
-		} else if err != nil && err != io.ErrUnexpectedEOF {
+		} else if err != nil {
 			return err
 		}
 
@@ -250,25 +186,24 @@ func (c *cbc) DecryptFile(src, dst string) error {
 			break
 		}
 
-		mode.CryptBlocks(buf, buf)
-		if n < blockSize {
-			lastBlock = buf // 保存最后一个块
-			continue
-		}
-		_, err = out.Write(buf)
-		if err != nil {
-			return err
-		}
 		fileSize += int64(n)
+		if fileSize < inputFileSize {
+			mode.CryptBlocks(buf, buf)
+			_, err = out.Write(buf)
+			if err != nil {
+				return err
+			}
+		} else {
+			lastBlock = buf[:n]
+			break
+		}
 	}
 
-	// 去除填充
 	if len(lastBlock) > 0 {
-		lastBlock, err = pkcs7unpadding2(lastBlock)
-		if err != nil {
-			return err
-		}
-		_, err := out.Write(lastBlock)
+		mode.CryptBlocks(lastBlock, lastBlock)
+		// 去除填充
+		lastBlock, _ = pkcs7unpadding(lastBlock)
+		_, err = out.Write(lastBlock[:])
 		if err != nil {
 			return err
 		}
