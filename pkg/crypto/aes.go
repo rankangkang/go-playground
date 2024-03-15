@@ -74,8 +74,8 @@ func NewCbc(key string, iv string) *cbc {
 	return &cbc{key, iv}
 }
 
-// 加密文件
-func (c *cbc) EncryptFile(src, dst string) error {
+// 流式加密文件
+func (c *cbc) EncryptFileStream(src, dst string) error {
 	key := c.key
 	iv := c.iv
 
@@ -113,9 +113,7 @@ func (c *cbc) EncryptFile(src, dst string) error {
 
 		// padding
 		if n < blockSize {
-			fmt.Println("e ===>", n)
 			buf = pkcs7padding(buf[:n], block.BlockSize())
-			fmt.Println("ef ===>", len(buf))
 		}
 
 		mode.CryptBlocks(buf, buf)
@@ -127,7 +125,8 @@ func (c *cbc) EncryptFile(src, dst string) error {
 	return nil
 }
 
-func (c *cbc) EncryptFileFull(src, dst string) error {
+// 整体加密（文件内容加载到内存后加密）
+func (c *cbc) EncryptFile(src, dst string) error {
 	in, err := os.ReadFile(src)
 	if err != nil {
 		return err
@@ -141,8 +140,8 @@ func (c *cbc) EncryptFileFull(src, dst string) error {
 	return os.WriteFile(dst, out, os.ModePerm)
 }
 
-// 解密文件，先解密后 padding
-func (c *cbc) DecryptFile(src, dst string) error {
+// 流式解密文件
+func (c *cbc) DecryptFileStream(src, dst string) error {
 	key := c.key
 	iv := c.iv
 
@@ -212,7 +211,8 @@ func (c *cbc) DecryptFile(src, dst string) error {
 	return nil
 }
 
-func (c *cbc) DecryptFileFull(src, dst string) error {
+// 整体解密（文件内容加载到内存后解密）
+func (c *cbc) DecryptFile(src, dst string) error {
 	in, err := os.ReadFile(src)
 	if err != nil {
 		return err
